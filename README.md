@@ -38,7 +38,7 @@ echo '{"chain": "Testnet"}' > ~/visor.json
 echo '{"chain": "Mainnet"}' > ~/visor.json
 ```
 
-The Dockerfile defaults to **Testnet**. Update the `visor.json` line and binary URLs in the Dockerfile for Mainnet.
+The Dockerfile defaults to **Mainnet**. Update the `visor.json` line and binary URLs in the Dockerfile for Testnet if needed.
 
 ### 2. Run with Docker Compose
 
