@@ -2,8 +2,11 @@
 DATA_PATH="/home/hluser/hl/data"
 
 # Folders to exclude from pruning
+# - visor_child_stderr: preserve crash logs for debugging
+# - node_fills: preserve fills data for downstream ingestion into ClickHouse.
+#   The ingestion pipeline may have lag beyond the 48-hour pruning window.
 # Example: EXCLUDES=("visor_child_stderr" "rate_limited_ips" "node_logs")
-EXCLUDES=("visor_child_stderr")
+EXCLUDES=("visor_child_stderr" "node_fills")
 
 # Log startup for debugging
 echo "$(date): Prune script started" >> /proc/1/fd/1

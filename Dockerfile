@@ -35,5 +35,9 @@ RUN curl -o /home/$USERNAME/hl-visor $HL_VISOR_URL \
 # Expose gossip ports
 EXPOSE 4000-4010
 
-# Run a non-validating node
-ENTRYPOINT ["/home/hluser/hl-visor", "run-non-validator", "--replica-cmds-style", "recent-actions"]
+# Run a non-validating node with minimal data footprint:
+# --write-fills: dumps trade fills to ~/hl/data/node_fills/hourly/{date}/{hour} for downstream ingestion (e.g. ClickHouse).
+#                Also writes TWAP statuses. Overrides --write-trades if both are set.
+# --replica-cmds-style recent-actions: keeps only the 2 latest height files to minimize disk usage.
+# No other --write-* flags are used to avoid unnecessary data (order statuses, raw book diffs, etc.).
+ENTRYPOINT ["/home/hluser/hl-visor", "run-non-validator", "--write-fills", "--replica-cmds-style", "recent-actions"]
