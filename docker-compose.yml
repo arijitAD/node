@@ -15,6 +15,22 @@ services:
     volumes:
       - hl-data:/home/hluser/hl/data
 
+  syncer:
+    restart: unless-stopped
+    build: ./syncer
+    volumes:
+      - hl-data:/home/hluser/hl/data
+    environment:
+      - FILLS_DIR=/home/hluser/hl/data/node_fills/hourly
+      - STATE_FILE=/home/hluser/hl/data/syncer_state.json
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=hyperliquid
+      - CLICKHOUSE_TABLE=fills
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - BATCH_SIZE=100
+      - BATCH_TIMEOUT=5s
+
 
 volumes:
   hl-data:
