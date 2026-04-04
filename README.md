@@ -14,7 +14,7 @@ A minimal Hyperliquid non-validating node configured to extract trade fills data
 
 | Service      | Purpose |
 |--------------|---------|
-| `node`       | Runs `hl-visor run-non-validator --write-fills` to stream fills data |
+| `node`       | Runs `hl-visor run-non-validator --write-fills --batch-by-block` to stream fills data grouped by block |
 | `pruner`     | Cron job (daily at 3 AM) that deletes files older than 48 hours, **excluding** `node_fills` and `visor_child_stderr` |
 | `fileserver` | nginx file server exposing `node_fills/hourly/` over HTTP on port 8080 ([design doc](docs/fileserver.md)) |
 
@@ -96,37 +96,43 @@ docker volume inspect hyperliquid_hl-data
 
 ### Fill Format
 
-Each line is a JSON object in the [Hyperliquid L1 data schema](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/nodes/l1-data-schemas). The `deployerFee` field is included for HIP-3 fills.
+With `--batch-by-block`, each line is one block containing all its fills. The schema is:
 
 ```jsonc
 {
-  "coin": "ETH",               // Market identifier (e.g. "BTC", "xyz:TSLA")
-  "side": "B",                 // "B" = buy-initiated, "A" = sell-initiated
-  "time": "2024-07-26T08:26:25.899",
-  "px": "3200.5",              // Fill price
-  "sz": "0.5",                 // Fill size
-  "hash": "0xabc...",          // Transaction hash
-  "side_info": [
+  "local_time": "...",          // Local wall-clock time when the block was processed
+  "block_time": "...",          // L1 block timestamp
+  "block_number": 70802809,     // L1 block height
+  "events": [                   // All fills in this block
     {
-      "user": "0x1234...",     // Buyer address
-      "start_pos": "2.0",     // Position size before this fill
-      "oid": 12345,
-      "twap_id": null,
-      "cloid": null
-    },
-    {
-      "user": "0x5678...",     // Seller address
-      "start_pos": "-1.5",
-      "oid": 67890,
-      "twap_id": null,
-      "cloid": null
+      "coin": "ETH",
+      "side": "B",
+      "time": "2024-07-26T08:26:25.899",
+      "px": "3200.5",
+      "sz": "0.5",
+      "hash": "0xabc...",
+      "side_info": [
+        {
+          "user": "0x1234...",
+          "start_pos": "2.0",
+          "oid": 12345,
+          "twap_id": null,
+          "cloid": null
+        },
+        {
+          "user": "0x5678...",
+          "start_pos": "-1.5",
+          "oid": 67890,
+          "twap_id": null,
+          "cloid": null
+        }
+      ]
     }
   ]
 }
 ```
 
-- `side_info[0]` is the **buyer** — position goes from `start_pos` → `start_pos + sz`
-- `side_info[1]` is the **seller** — position goes from `start_pos` → `start_pos - sz`
+See the [Hyperliquid L1 data schema](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/nodes/l1-data-schemas) for field details. The `deployerFee` field is included for HIP-3 fills.
 
 ## File Server
 
@@ -148,6 +154,40 @@ The pruner sidecar runs daily at 3 AM and deletes all files in `~/hl/data/` olde
 - `node_fills` — preserved for downstream ingestion (your pipeline must handle cleanup)
 
 > **Important:** Since `node_fills` is excluded from pruning, fills data will accumulate indefinitely. Ensure your ingestion pipeline deletes files after successful ingest, or add a separate cleanup mechanism with a longer retention window.
+
+## Common Operations
+
+### Rebuild after code changes
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+The node picks up where it left off — no resync required.
+
+### Clear fills data only
+
+To delete old fills without losing node state:
+
+```bash
+sudo rm -rf /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/hourly/*
+docker compose restart node
+```
+
+### Restart a service
+
+```bash
+docker compose restart node
+```
+
+### Stop everything
+
+```bash
+docker compose down
+```
+
+> **⚠️ NEVER use `docker compose down -v`** unless you intend a full reset. The `-v` flag deletes the Docker volume containing all node state (synced blocks, ABCI state, gossip config). This forces a **full resync from the network** which takes 10+ minutes to bootstrap the ~830 MB initial state and then catch up to the current block height. To clear fills, delete only the fills directory as shown above.
 
 ## Mainnet Seed Peers
 
