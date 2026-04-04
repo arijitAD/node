@@ -9,8 +9,10 @@ PEERS=$(curl -sf -X POST \
   https://api.hyperliquid.xyz/info)
 
 if [ -n "$PEERS" ]; then
-  echo "{\"root_node_ips\": $PEERS}" > ~/override_gossip_config.json
-  echo "Wrote override_gossip_config.json with peers: $PEERS"
+  # Transform plain IP strings ["1.2.3.4","5.6.7.8"] into [{"Ip":"1.2.3.4"},{"Ip":"5.6.7.8"}]
+  ROOT_IPS=$(echo "$PEERS" | sed 's/"[^"]*"/{"Ip":&}/g')
+  echo "{\"root_node_ips\": $ROOT_IPS, \"try_new_peers\": false, \"chain\": \"Mainnet\"}" > ~/override_gossip_config.json
+  echo "Wrote override_gossip_config.json"
 else
   echo "WARNING: Failed to fetch peers, starting without override_gossip_config.json"
 fi
