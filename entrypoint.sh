@@ -9,7 +9,7 @@ PEERS=$(curl -sf -X POST \
   https://api.hyperliquid.xyz/info)
 
 if [ -n "$PEERS" ]; then
-  echo "{\"rootIps\": $PEERS}" > ~/override_gossip_config.json
+  echo "{\"root_node_ips\": $PEERS}" > ~/override_gossip_config.json
   echo "Wrote override_gossip_config.json with peers: $PEERS"
 else
   echo "WARNING: Failed to fetch peers, starting without override_gossip_config.json"
