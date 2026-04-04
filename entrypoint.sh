@@ -18,4 +18,4 @@ else
 fi
 
 # Start hl-visor
-exec ~/hl-visor run-non-validator --write-fills --batch-by-block --replica-cmds-style recent-actions
+exec ~/hl-visor run-non-validator --write-fills --batch-by-block --replica-cmds-style recent-actions --serve-info
