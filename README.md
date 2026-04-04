@@ -151,9 +151,38 @@ The file server uses `network_mode: host`, binding directly to the host's networ
 The pruner sidecar runs daily at 3 AM and deletes all files in `~/hl/data/` older than 48 hours, **except**:
 
 - `visor_child_stderr` — crash logs for debugging
-- `node_fills` — preserved for downstream ingestion (your pipeline must handle cleanup)
+- `node_fills` — preserved for downstream ingestion
 
-> **Important:** Since `node_fills` is excluded from pruning, fills data will accumulate indefinitely. Ensure your ingestion pipeline deletes files after successful ingest, or add a separate cleanup mechanism with a longer retention window.
+Since `node_fills` is excluded from automatic pruning, fills data will accumulate indefinitely. Use the commands below to prune old fills.
+
+### Prune fills older than a specific retention period
+
+From the host machine:
+
+```bash
+# Prune fills older than 7 days
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +7 -delete
+
+# Prune fills older than 30 days
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +30 -delete
+
+# Remove empty date directories left behind
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type d -empty -delete
+```
+
+### Automate fills pruning with cron
+
+Add a cron job on the host to prune fills automatically. For example, to keep 7 days of data:
+
+```bash
+# Edit the host's crontab
+sudo crontab -e
+
+# Add this line (runs daily at 4 AM, after the general pruner runs at 3 AM)
+0 4 * * * find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +7 -delete && find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type d -empty -delete
+```
+
+Change `-mtime +7` to `-mtime +30` for 30-day retention, or any number of days.
 
 ## Common Operations
 
