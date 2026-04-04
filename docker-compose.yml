@@ -7,20 +7,20 @@ services:
     ports:
       - "4000-4010:4000-4010"
     volumes:
-      - hl-data:/home/hluser/hl/data
+      - hl-data:/home/hluser/hl
 
   pruner:
     restart: unless-stopped
     build: ./pruner
     volumes:
-      - hl-data:/home/hluser/hl/data
+      - hl-data:/home/hluser/hl
 
   fileserver:
     restart: unless-stopped
     image: nginx:alpine
     network_mode: host
     volumes:
-      - hl-data:/data
+      - hl-data:/hl
       - ./fileserver/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
