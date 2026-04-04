@@ -5,7 +5,8 @@ A minimal Hyperliquid non-validating node configured to extract trade fills data
 ## What This Does
 
 - Runs a **non-validating** node that syncs with the Hyperliquid L1 network
-- Streams **trade fills** to `~/hl/data/node_fills/hourly/{date}/{hour}` (also TWAP statuses)
+- Streams **trade fills** grouped by block to `~/hl/data/node_fills_by_block/hourly/{date}/{hour}` (also TWAP statuses)
+- Uses `--batch-by-block` so each line is one block with `{block_number, block_time, events}` schema
 - Uses `--replica-cmds-style recent-actions` to keep only the 2 latest height files, minimizing disk usage
 - No other data is written (no order statuses, raw book diffs, etc.)
 - Exposes fills via an **HTTP file server** for downstream consumers to pull
@@ -16,7 +17,7 @@ A minimal Hyperliquid non-validating node configured to extract trade fills data
 |--------------|---------|
 | `node`       | Runs `hl-visor run-non-validator --write-fills --batch-by-block` to stream fills data grouped by block |
 | `pruner`     | Cron job (daily at 3 AM) that deletes files older than 48 hours, **excluding** `node_fills` and `visor_child_stderr` |
-| `fileserver` | nginx file server exposing `node_fills/hourly/` over HTTP on port 8080 ([design doc](docs/fileserver.md)) |
+| `fileserver` | nginx file server exposing `node_fills_by_block/hourly/` over HTTP on port 8080 ([design doc](docs/fileserver.md)) |
 
 The `hl-visor` binary manages the child `hl-node` process and handles automatic binary updates (downloaded, GPG-verified, and restarted transparently).
 
@@ -68,24 +69,26 @@ curl http://localhost:8080/
 
 ### File Path
 
-Fills are written as JSONL to:
+Fills are written as JSONL (one block per line) to:
 
 ```
-~/hl/data/node_fills/hourly/{date}/{hour}
+~/hl/data/node_fills_by_block/hourly/{date}/{hour}
 ```
 
 Inside the container this resolves to:
 
 ```
-/home/hluser/hl/data/node_fills/hourly/{date}/{hour}
+/home/hluser/hl/data/node_fills_by_block/hourly/{date}/{hour}
 ```
+
+> **Note:** The `--batch-by-block` flag causes fills to be written to `node_fills_by_block` instead of `node_fills`. Without this flag, the path would be `node_fills/hourly/{date}/{hour}`.
 
 ### Storage & Persistence
 
 The data directory is mounted as a **Docker volume** (`hl-data`) shared by the `node`, `pruner`, and `fileserver` services. On the host machine the volume is stored at:
 
 ```
-/var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/hourly/{date}/{hour}
+/var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/hourly/{date}/{hour}
 ```
 
 You can inspect the volume with:
@@ -151,9 +154,9 @@ The file server uses `network_mode: host`, binding directly to the host's networ
 The pruner sidecar runs daily at 3 AM and deletes all files in `~/hl/data/` older than 48 hours, **except**:
 
 - `visor_child_stderr` — crash logs for debugging
-- `node_fills` — preserved for downstream ingestion
+- `node_fills` / `node_fills_by_block` — preserved for downstream ingestion
 
-Since `node_fills` is excluded from automatic pruning, fills data will accumulate indefinitely. Use the commands below to prune old fills.
+Since fills directories are excluded from automatic pruning, fills data will accumulate indefinitely. Use the commands below to prune old fills.
 
 ### Prune fills older than a specific retention period
 
@@ -161,13 +164,13 @@ From the host machine:
 
 ```bash
 # Prune fills older than 7 days
-sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +7 -delete
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/ -type f -mtime +7 -delete
 
 # Prune fills older than 30 days
-sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +30 -delete
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/ -type f -mtime +30 -delete
 
 # Remove empty date directories left behind
-sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type d -empty -delete
+sudo find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/ -type d -empty -delete
 ```
 
 ### Automate fills pruning with cron
@@ -179,7 +182,7 @@ Add a cron job on the host to prune fills automatically. For example, to keep 7 
 sudo crontab -e
 
 # Add this line (runs daily at 4 AM, after the general pruner runs at 3 AM)
-0 4 * * * find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type f -mtime +7 -delete && find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/ -type d -empty -delete
+0 4 * * * find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/ -type f -mtime +7 -delete && find /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/ -type d -empty -delete
 ```
 
 Change `-mtime +7` to `-mtime +30` for 30-day retention, or any number of days.
@@ -200,7 +203,7 @@ The node picks up where it left off — no resync required.
 To delete old fills without losing node state:
 
 ```bash
-sudo rm -rf /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills/hourly/*
+sudo rm -rf /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/hourly/*
 docker compose restart node
 ```
 

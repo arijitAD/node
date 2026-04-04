@@ -6,7 +6,7 @@ DATA_PATH="/home/hluser/hl/data"
 # - node_fills: preserve fills data for downstream ingestion into ClickHouse.
 #   The ingestion pipeline may have lag beyond the 48-hour pruning window.
 # Example: EXCLUDES=("visor_child_stderr" "rate_limited_ips" "node_logs")
-EXCLUDES=("visor_child_stderr" "node_fills")
+EXCLUDES=("visor_child_stderr" "node_fills" "node_fills_by_block")
 
 # Log startup for debugging
 echo "$(date): Prune script started" >> /proc/1/fd/1
