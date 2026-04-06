@@ -97,6 +97,16 @@ You can inspect the volume with:
 docker volume inspect hyperliquid_hl-data
 ```
 
+Check disk usage:
+
+```bash
+# Total volume size (all node data)
+du -sh /var/lib/docker/volumes/hyperliquid_hl-data/_data/
+
+# Fills data only
+du -sh /var/lib/docker/volumes/hyperliquid_hl-data/_data/node_fills_by_block/
+```
+
 ### Fill Format
 
 With `--batch-by-block`, each line is one block containing all its fills. The schema is:
