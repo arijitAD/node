@@ -309,20 +309,6 @@ ORDER BY abs(net_position) DESC
 
 > **⚠️ Warning:** Approach 2 only works if you have the **complete** fill history for all users from the beginning. If you start ingesting fills mid-stream, users may have pre-existing positions that won't be captured. Approach 1 (using `start_position`) is more reliable because each fill is self-describing.
 
-### Approach 3: Use `direction` to Filter Active Users
-
-For a quick check of "who has recently opened positions", filter by direction:
-
-```sql
--- Users who opened new positions in the last 24 hours
-SELECT DISTINCT address, coin, direction
-FROM hyperliquid.fills
-WHERE asset_class = 'perp'
-  AND timestamp >= now() - INTERVAL 24 HOUR
-  AND direction IN ('Open Long', 'Open Short', 'Long > Short', 'Short > Long')
-ORDER BY address, coin
-```
-
 ### Edge Cases
 
 | Scenario | What happens |
@@ -369,6 +355,100 @@ ORDER BY fill_count DESC
 ```
 
 This gives you a list of `(address, dex)` pairs to call `clearinghouseState` on.
+
+### Batched Workflow
+
+Each workflow run captures the current time as a **cutoff**, materializes the full list of users with open positions into a temporary table, then the snapshot service drains it in batches. Once complete, the table is dropped.
+
+**Step 1 — Create the work queue:**
+
+The `{cutoff:DateTime64(3)}` parameter should be set to `now()` at the start of the workflow run. This freezes the point-in-time view — fills ingested after the cutoff are excluded, ensuring the `ROW_NUMBER()` window produces a consistent snapshot.
+
+```sql
+CREATE TABLE hyperliquid.snapshot_queue
+ENGINE = MergeTree()
+ORDER BY (dex, address)
+AS
+SELECT DISTINCT
+    address,
+    if(position(coin, ':') > 0,
+       substring(coin, 1, position(coin, ':') - 1),
+       ''
+    ) AS dex
+FROM (
+    SELECT
+        address,
+        coin,
+        if(side = 'buy',
+           start_position + size,
+           start_position - size
+        ) AS end_position,
+        ROW_NUMBER() OVER (
+            PARTITION BY address, coin
+            ORDER BY timestamp DESC
+        ) AS rn
+    FROM hyperliquid.fills
+    WHERE asset_class = 'perp'
+      AND timestamp <= {cutoff:DateTime64(3)}
+)
+WHERE rn = 1
+  AND end_position != 0
+```
+
+This runs a single query and writes the result directly into a table — no intermediate steps.
+
+**Step 2 — Process in batches:**
+
+```sql
+SELECT address, dex
+FROM hyperliquid.snapshot_queue
+ORDER BY dex, address
+LIMIT {batch_size:UInt32}
+OFFSET {batch_offset:UInt32}
+```
+
+**Step 3 — Clean up:**
+
+```sql
+DROP TABLE hyperliquid.snapshot_queue
+```
+
+**Workflow loop** (pseudo-code):
+
+```
+-- 1. Materialize the work queue
+run Step 1
+
+-- 2. Get total and batch through
+total      = SELECT count() FROM snapshot_queue
+batch_size = 500
+batches    = ceil(total / batch_size)
+
+for i in 0..batches:
+    rows = run Step 2 with batch_offset = i * batch_size
+    for each (address, dex, coins) in rows:
+        call clearinghouseState(address, dex)
+        call spotClearinghouseState(address)
+        write snapshot to ClickHouse / S3
+    sleep(throttle)
+
+-- 3. Drop the work queue
+run Step 3
+```
+
+> **Why a table instead of pagination over the raw query?** The position-derivation query uses `ROW_NUMBER()` over the entire fills table — expensive to re-run per batch. Materializing once into `snapshot_queue` means the heavy query runs exactly once, and batch reads are trivial index scans.
+
+> **Crash safety:** If the service crashes mid-run, `snapshot_queue` still exists. On the next run, check if the table exists — if so, resume from where you left off (track the last processed offset) or drop and recreate.
+
+> [!NOTE]
+> **Phase 2 TODO — Incremental scan optimization**
+>
+> The current approach (Phase 1) re-derives positions from the *entire* fills table on every run. In Phase 2, we can optimize by only re-computing positions for `(address, coin)` pairs that had new fills since the last cutoff. This would involve:
+> - Persisting the cutoff timestamp between runs
+> - Querying only fills in the `(last_cutoff, current_cutoff]` window to find affected users
+> - Merging those with the previous snapshot's position state
+>
+> This reduces the heavy `ROW_NUMBER()` scan to just the delta, but requires careful handling of edge cases (e.g., first run, backfills, users who closed positions between runs). Needs more design thought before implementing.
 
 ---
 
